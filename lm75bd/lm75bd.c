@@ -42,6 +42,7 @@ error_code_t readTempLM75BD(uint8_t devAddr, float *temp) {
 //  *temp = convertedTemp * 0.125;
 
 //  Conversion from twos complement, and conversion to Celsius
+/*
   uint16_t convertedTemp = (readBuffer[0] << 3) | (readBuffer[1] >> 5);
   if(readBuffer[0] & 0x80){
       convertedTemp = (convertedTemp ^ 0x07FF) + 1;
@@ -50,6 +51,9 @@ error_code_t readTempLM75BD(uint8_t devAddr, float *temp) {
   else{
       *temp = convertedTemp * 0.125;
   }
+*/
+  int16_t convertedTemp = (readBuffer[0]<<8) | readBuffer[1];
+  *temp = (float)(convertedTemp >> 5) * 0.125;
   
   return ERR_CODE_SUCCESS;
 }
