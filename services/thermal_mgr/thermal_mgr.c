@@ -44,8 +44,9 @@ void initThermalSystemManager(lm75bd_config_t *config) {
 
 error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
   if(event == NULL) return ERR_CODE_INVALID_ARG;
+  if(thermalMgrQueueHandle == NULL) return ERR_CODE_INVALID_QUEUE_HANDLE;
 
-  if(xQueueSend(thermalMgrQueueHandle, event, 1) != pdPASS){
+  if(xQueueSend(thermalMgrQueueHandle, event, 0) != pdPASS){
     return  ERR_CODE_QUEUE_FULL;
   }
 
@@ -53,15 +54,9 @@ error_code_t thermalMgrSendEvent(thermal_mgr_event_t *event) {
 }
 
 void osHandlerLM75BD(void) {
-  float temp;
-  if(readTempLM75BD(LM75BD_OBC_I2C_ADDR, &temp) == ERR_CODE_SUCCESS){
-    //  Case high temp threshold exceeded
-    if(temp >= LM75BD_DEFAULT_OT_THRESH) overTemperatureDetected();
-    //  Case Hysteresis temp reached
-    else if(temp <= LM75BD_DEFAULT_HYST_THRESH) safeOperatingConditions();
-    // Case neither
-    else LOG_ERROR_CODE(ERR_CODE_INVALID_INTERUPT);
-  }
+  thermal_mgr_event_t event;
+  event.type = THERMAL_MGR_EVENT_INTERRUPT;
+  thermalMgrSendEvent(&event);
 }
 
 static void thermalMgr(void *pvParameters) {
@@ -70,12 +65,29 @@ static void thermalMgr(void *pvParameters) {
     if(xQueueReceive(thermalMgrQueueHandle, &currentEvent, portMAX_DELAY) == pdPASS){
       if(currentEvent.type == THERMAL_MGR_EVENT_MEASURE_TEMP_CMD){
         float temp;
-        if(readTempLM75BD(LM75BD_OBC_I2C_ADDR, &temp) == ERR_CODE_SUCCESS) addTemperatureTelemetry(temp);
+        error_code_t errCode = readTempLM75BD(LM75BD_OBC_I2C_ADDR, &temp);
+        //  Check if temp read is successful
+        if(errCode != ERR_CODE_SUCCESS) LOG_ERROR_CODE(errCode);
+        //  Send telemetry
+        else addTemperatureTelemetry(temp);
+      }
+
+      else if(currentEvent.type == THERMAL_MGR_EVENT_INTERRUPT){
+        float temp;
+        error_code_t errCode = readTempLM75BD(LM75BD_OBC_I2C_ADDR, &temp);
+        //  Check that temp read is successful
+        if(errCode != ERR_CODE_SUCCESS) LOG_ERROR_CODE(errCode);
+        //  Check if over temp interrupt
+        else if(temp >= LM75BD_DEFAULT_OT_THRESH) overTemperatureDetected();
+        //  Check if hysteresis interrupt
+        else if(temp <= LM75BD_DEFAULT_HYST_THRESH) safeOperatingConditions();
+        //  Check if neither
+        else LOG_ERROR_CODE(ERR_CODE_INVALID_INTERUPT);
       }
 
       else LOG_ERROR_CODE(ERR_CODE_INVALID_QUEUE_MSG);
     }
-
+    
     else LOG_ERROR_CODE(ERR_CODE_QUEUE_RECIEVE_FAIL);
   }
 }
